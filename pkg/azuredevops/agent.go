@@ -1,6 +1,6 @@
 package azuredevops
 
-// Agent is the the agent object returned in AgentRequest.ReservedAgent. It is also the base struct for AgentDetails.
+// Agent is the agent object returned in AgentRequest.ReservedAgent. It is also the base struct for AgentDetails.
 type Agent struct {
 	Definition
 	Version           string `json:"version"`

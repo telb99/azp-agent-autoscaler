@@ -37,6 +37,8 @@ func Agents(num int32, free bool, startPos int32) []azuredevops.AgentDetails {
 				"HOSTNAME": fmt.Sprintf("azp-agent-%d", i),
 			},
 		}
+
+		agent.Enabled = true
 		if free {
 			agent.AssignedRequest = nil
 		} else {

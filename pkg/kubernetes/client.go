@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -65,7 +66,7 @@ func (c ClientImpl) GetWorkload(args args.KubernetesArgs) (*Workload, error) {
 }
 
 func (c ClientImpl) getStatefulSet(namespace string, name string) (*Workload, error) {
-	statefulSet, err := c.client.AppsV1().StatefulSets(namespace).Get(name, metav1.GetOptions{})
+	statefulSet, err := c.client.AppsV1().StatefulSets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	} else if statefulSet == nil {
@@ -77,7 +78,7 @@ func (c ClientImpl) getStatefulSet(namespace string, name string) (*Workload, er
 
 // VerifyNoHorizontalPodAutoscaler returns an error if the given resource has a HorizontalPodAutoscaler
 func (c ClientImpl) VerifyNoHorizontalPodAutoscaler(args args.KubernetesArgs) error {
-	hpas, err := c.client.AutoscalingV1().HorizontalPodAutoscalers(args.Namespace).List(metav1.ListOptions{})
+	hpas, err := c.client.AutoscalingV1().HorizontalPodAutoscalers(args.Namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -97,10 +98,10 @@ func (c ClientImpl) Scale(resource *Workload, replicas int32) error {
 	if strings.EqualFold(resource.Kind, "StatefulSet") {
 		statefulsets := c.client.AppsV1().StatefulSets(resource.Namespace)
 		getScaleFunc = func() (*autoscalingv1.Scale, error) {
-			return statefulsets.GetScale(resource.Name, metav1.GetOptions{})
+			return statefulsets.GetScale(context.TODO(), resource.Name, metav1.GetOptions{})
 		}
 		doScaleFunc = func(scale *autoscalingv1.Scale) error {
-			scale, err := statefulsets.UpdateScale(resource.Name, scale)
+			scale, err := statefulsets.UpdateScale(context.TODO(), resource.Name, scale, metav1.UpdateOptions{})
 			return err
 		}
 	} else {
@@ -133,7 +134,7 @@ func (c ClientImpl) GetEnvValue(podSpec corev1.PodSpec, namespace string, envNam
 		} else if env.ValueFrom.ResourceFieldRef != nil {
 			return "", fmt.Errorf("Error getting value for environment variable %s: resourceFieldRef is not supported", env.Name)
 		} else if env.ValueFrom.ConfigMapKeyRef != nil {
-			configmap, err := c.client.CoreV1().ConfigMaps(namespace).Get(env.ValueFrom.ConfigMapKeyRef.Name, metav1.GetOptions{})
+			configmap, err := c.client.CoreV1().ConfigMaps(namespace).Get(context.TODO(), env.ValueFrom.ConfigMapKeyRef.Name, metav1.GetOptions{})
 			if err != nil {
 				return "", fmt.Errorf("Error getting value from configmap %s for environment variable %s: %s", env.ValueFrom.ConfigMapKeyRef.Name, envName, err.Error())
 			}
@@ -143,7 +144,7 @@ func (c ClientImpl) GetEnvValue(podSpec corev1.PodSpec, namespace string, envNam
 			}
 			return value, nil
 		} else if env.ValueFrom.SecretKeyRef != nil {
-			secret, err := c.client.CoreV1().Secrets(namespace).Get(env.ValueFrom.SecretKeyRef.Name, metav1.GetOptions{})
+			secret, err := c.client.CoreV1().Secrets(namespace).Get(context.TODO(), env.ValueFrom.SecretKeyRef.Name, metav1.GetOptions{})
 			if err != nil {
 				return "", fmt.Errorf("Error getting value from secret %s for environment variable %s: %s", env.ValueFrom.SecretKeyRef.Name, envName, err.Error())
 			}
@@ -166,7 +167,7 @@ func (c ClientImpl) GetPods(workload *Workload) ([]corev1.Pod, error) {
 	listOptions := metav1.ListOptions{
 		LabelSelector: apimachinery.FormatLabelSelector(workload.PodSelector),
 	}
-	pods, err := c.client.CoreV1().Pods(workload.Namespace).List(listOptions)
+	pods, err := c.client.CoreV1().Pods(workload.Namespace).List(context.TODO(), listOptions)
 	if err != nil {
 		return nil, err
 	}
