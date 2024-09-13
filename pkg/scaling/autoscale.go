@@ -126,13 +126,13 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	podDisabledCount := 0
 	for _, agent := range agents.Agents {
 		if !agent.Enabled {
-			podName := agent.SystemCapabilities["HOSTNAME"]
-			agentNumber := strings.TrimPrefix(podName, fmt.Sprintf("%s-", deployment.Name))
+			agentName := agent.Name
+			agentNumber := strings.TrimPrefix(agentName, fmt.Sprintf("%s-", deployment.Name))
 			i, err := strconv.Atoi(agentNumber)
 			if err == nil && i >= 0 {
 				if int32(i) < podsToScaleTo {
 					if !agent.Enabled {
-						logging.Logger.Debugf("Enabling agent: %s", podName)
+						logging.Logger.Debugf("Enabling agent: %s", agentName)
 
 						// TODO: enable agent in ADO
 						enablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
@@ -144,7 +144,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 					}
 				} else {
 					if agent.Enabled {
-						logging.Logger.Debugf("Disabling agent: %s", podName)
+						logging.Logger.Debugf("Disabling agent: %s", agentName)
 
 						// disable agent in ADO
 						disablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
@@ -327,8 +327,8 @@ func getActiveAgentNames(agents []azuredevops.AgentDetails, podNames collections
 	activeAgentNames := make(collections.StringSet)
 	for _, agent := range agents {
 		if strings.EqualFold(agent.Status, "online") {
-			podName := agent.SystemCapabilities["HOSTNAME"]
-			if podNames.Contains(podName) && agent.AssignedRequest != nil {
+			agentName := agent.Name
+			if agentNames.Contains(agentName) && agent.AssignedRequest != nil {
 				activeAgentNames.Add(agent.Name)
 			}
 		}
@@ -340,9 +340,9 @@ func getActiveAgentPodNames(agents []azuredevops.AgentDetails, podNames collecti
 	activeAgentPodNames := make(collections.StringSet)
 	for _, agent := range agents {
 		if strings.EqualFold(agent.Status, "online") {
-			podName := agent.SystemCapabilities["HOSTNAME"]
-			if podNames.Contains(podName) && agent.AssignedRequest != nil {
-				activeAgentPodNames.Add(podName)
+			agentName := agent.Name
+			if podNames.Contains(agentName) && agent.AssignedRequest != nil {
+				activeAgentPodNames.Add(agentName)
 			}
 		}
 	}

@@ -29,12 +29,9 @@ func Agents(num int32, free bool, startPos int32) []azuredevops.AgentDetails {
 			Agent: azuredevops.Agent{
 				Definition: azuredevops.Definition{
 					ID:   int(i),
-					Name: fmt.Sprintf("agent-%d", i),
+					Name: fmt.Sprintf("azp-agent-%d", i),
 				},
 				Status: "online",
-			},
-			SystemCapabilities: map[string]string{
-				"HOSTNAME": fmt.Sprintf("azp-agent-%d", i),
 			},
 		}
 

@@ -14,7 +14,7 @@ import (
 const getPoolsEndpoint = "/_apis/distributedtask/pools?poolName=%s"
 
 // Parameter 1 is the Pool ID
-const getPoolAgentsEndpoint = "/_apis/distributedtask/pools/%d/agents?includeCapabilities=true&includeAssignedRequest=true&includeLastCompletedRequest=true"
+const getPoolAgentsEndpoint = "/_apis/distributedtask/pools/%d/agents?includeAssignedRequest=true"
 
 // Parameter 1 is the Pool ID
 const getPoolJobRequestsEndpoint = "/_apis/distributedtask/pools/%d/jobrequests"
@@ -23,7 +23,7 @@ const getPoolJobRequestsEndpoint = "/_apis/distributedtask/pools/%d/jobrequests"
 // Parameter 2 is the Agent ID to patch
 const patchPoolAgentEndpoint = "/_apis/distributedtask/pools/%d/agents/%d"
 
-const acceptHeader = "application/json;api-version=5.0-preview.1"
+const acceptHeader = "application/json;api-version=7.1-preview.1 "
 
 var (
 	azdDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
