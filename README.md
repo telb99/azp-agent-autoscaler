@@ -23,7 +23,7 @@ You can find the limit on parallel jobs by going to your project settings in Azu
 
 ## Configuration
 
-The values `azp.token` and `azp.url` are required to install the chart. `azp.token` is your Personal Acces token. This token requires Agent Pools (Read) permission. `azp.url` is your Azure Devops URL, usually `https://dev.azure.com/<Your Organization>`.
+The values `azp.token` and `azp.url` are required to install the chart. `azp.token` is the Personal Acces token to be used. This token requires Agent Pools permission (Read and Manage). `azp.url` is your Azure Devops URL, usually `https://dev.azure.com/<Your Organization>`.
 
 `agents.Name` is the name of the resource your agents are deployed in. `agents.Namespace` is the namespace the resource is in, which defaults to the release namespace. `agents.Kind` is the resource kind the agents are deployed in. Only StatefulSet is currently supported, which is the default value.
 
