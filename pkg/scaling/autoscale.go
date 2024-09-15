@@ -91,7 +91,6 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 
 	// Get number of active agents
 	activeAgentNames := getActiveAgentNames(agents.Agents, podNames)
-	activeAgentPodNames := getActiveAgentPodNames(agents.Agents, podNames)
 	activeAgentCount := int32(len(activeAgentNames))
 
 	// Determine the number of jobs that are queued
@@ -216,7 +215,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	if scalingDirection < 0 && activeAgentCount > 0 {
 		maxActivePod := int32(0)
 		for i := podCount - 1; i > 0; i-- {
-			if activeAgentPodNames.Contains(fmt.Sprintf("%s-%d", deployment.Name, i)) {
+			if activeAgentNames.Contains(fmt.Sprintf("%s-%d", deployment.Name, i)) {
 				maxActivePod = i
 				break
 			}
@@ -328,25 +327,12 @@ func getActiveAgentNames(agents []azuredevops.AgentDetails, podNames collections
 	for _, agent := range agents {
 		if strings.EqualFold(agent.Status, "online") {
 			agentName := agent.Name
-			if agentNames.Contains(agentName) && agent.AssignedRequest != nil {
+			if podNames.Contains(agentName) && agent.AssignedRequest != nil {
 				activeAgentNames.Add(agent.Name)
 			}
 		}
 	}
 	return activeAgentNames
-}
-
-func getActiveAgentPodNames(agents []azuredevops.AgentDetails, podNames collections.StringSet) collections.StringSet {
-	activeAgentPodNames := make(collections.StringSet)
-	for _, agent := range agents {
-		if strings.EqualFold(agent.Status, "online") {
-			agentName := agent.Name
-			if podNames.Contains(agentName) && agent.AssignedRequest != nil {
-				activeAgentPodNames.Add(agentName)
-			}
-		}
-	}
-	return activeAgentPodNames
 }
 
 func getQueuedJobCount(jobs []azuredevops.JobRequest, activeAgentNames collections.StringSet) int32 {
