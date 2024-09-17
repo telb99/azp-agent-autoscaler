@@ -30,7 +30,9 @@ func main() {
 
 	logging.Logger.SetLevel(args.Logging.Level)
 
-	// Initialize Azure Devops client
+	logging.Logger.Info("Main: starting up")
+
+	// Initialize Azure Devops and Kubernetes clients
 	azdClient := azuredevops.MakeClient(args.AZD.URL, args.AZD.Token)
 	k8sClient, err := kubernetes.MakeClient()
 	if err != nil {
@@ -47,6 +49,8 @@ func main() {
 	go k8sClient.VerifyNoHorizontalPodAutoscalerAsync(verifyHPAChan, args.Kubernetes)
 	// Get all agent pools
 	go azdClient.ListPoolsAsync(agentPoolsChan)
+
+	// Setup the web server to respond to health checks and metrics requests
 	go func() {
 		mux := http.NewServeMux()
 		mux.Handle("/healthz", health.LivenessCheck{})
@@ -104,15 +108,12 @@ func main() {
 					timeToSleep := math.MaxDuration(*httpError.RetryAfter, args.Rate)
 					logging.Logger.Infof("Retrying after %s", timeToSleep.String())
 					time.Sleep(timeToSleep)
+					continue
 				}
-			default:
-				// Do nothing
 			}
-
 			logging.Logger.Panicf("Error autoscaling statefulset/%s: %s", deployment.Resource.Name, err.Error())
-		} else {
-			time.Sleep(args.Rate)
 		}
+		time.Sleep(args.Rate)
 	}
 
 	logging.Logger.Info("Exiting azp-agent-autoscaler")

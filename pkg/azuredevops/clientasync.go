@@ -82,12 +82,12 @@ type EnableDisablePoolAgentResponse struct {
 
 // EnablePoolAgentAsync enables an agent in a pool
 func (c ClientAsyncImpl) EnablePoolAgentAsync(channel chan<- EnableDisablePoolAgentResponse, poolID int, agentID int) {
-	response, err := c.client.EnablePoolAgent(poolID, agentID)
-	channel <- EnableDisablePoolAgentResponse{response, err}
+	result, err := c.client.EnablePoolAgent(poolID, agentID)
+	channel <- EnableDisablePoolAgentResponse{result, err}
 }
 
 // DisablePoolAgentAsync disables an agent in a pool
 func (c ClientAsyncImpl) DisablePoolAgentAsync(channel chan<- EnableDisablePoolAgentResponse, poolID int, agentID int) {
-	response, err := c.client.DisablePoolAgent(poolID, agentID)
-	channel <- EnableDisablePoolAgentResponse{response, err}
+	result, err := c.client.DisablePoolAgent(poolID, agentID)
+	channel <- EnableDisablePoolAgentResponse{result, err}
 }

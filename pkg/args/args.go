@@ -10,6 +10,7 @@ import (
 )
 
 var (
+	action            = flag.String("action", "run", "Action to take. Options: run, dry-run.")
 	logLevel          = flag.String("log-level", "info", "Log level (trace, debug, info, warn, error, fatal, panic).")
 	min               = flag.Int("min", 1, "Minimum number of free agents to keep alive. Minimum of 1.")
 	max               = flag.Int("max", 100, "Maximum number of agents allowed.")
@@ -26,6 +27,8 @@ var (
 
 // Args holds all of the program arguments
 type Args struct {
+	Action string
+
 	Min  int32
 	Max  int32
 	Rate time.Duration
@@ -81,9 +84,10 @@ func ArgsFromFlags() Args {
 	// error should be validated in ValidateArgs()
 	logrusLevel, _ := log.ParseLevel(*logLevel)
 	return Args{
-		Min:  int32(*min),
-		Max:  int32(*max),
-		Rate: *rate,
+		Action: *action,
+		Min:    int32(*min),
+		Max:    int32(*max),
+		Rate:   *rate,
 		ScaleDown: ScaleDownArgs{
 			Delay: *scaleDownDelay,
 		},
@@ -115,6 +119,9 @@ func ValidateArgs() error {
 	_, err := log.ParseLevel(*logLevel)
 	if err != nil {
 		validationErrors = append(validationErrors, err.Error())
+	}
+	if *action != "run" && *action != "dry-run" {
+		validationErrors = append(validationErrors, "Action must be \"run\" or \"dry-run\".")
 	}
 	if *min < 1 {
 		validationErrors = append(validationErrors, "Min argument cannot be less than 1.")

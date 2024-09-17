@@ -110,13 +110,6 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	scalingDirection, podsToScaleTo := calculatePodsToScaleTo(activeAgentCount, queuedJobCount, podCount, args.Min, args.Max)
 	logging.Logger.Debugf("podsToScaleTo: %d, scalingDirection: %d", podsToScaleTo, scalingDirection)
 
-	if scalingDirection == 0 {
-		// No scaling needed
-		logging.Logger.Debugf("No scaling needed!")
-		scaleSizeGauge.Set(0)
-		return nil
-	}
-
 	if scalingDirection < 0 {
 		// avoid scaling down too soon after a scale up
 		now := time.Now()
@@ -131,21 +124,28 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 		// get the agent that will be deleted if we scale down
 		agentNameToDelete := fmt.Sprintf("%s-%d", deployment.Name, podsToScaleTo)
 		agentToDelete := getAgentDetails(agents, agentNameToDelete)
-		if len(agentToDelete) == 1 && agentToDelete[0].Enabled {
-			// if the pod that will be deleted when we scale down exists and is enabled, disable it and return...
-			// we don't want to scaledown if there's a chance the agent pod can pick up a job before the scale down happens
-			logging.Logger.Debugf("Disabling agent: %s", agentNameToDelete)
-			disablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
-			go azdClient.DisablePoolAgentAsync(disablePoolAgentChan, agentPoolID, agentToDelete[0].Agent.ID)
-			agents := <-disablePoolAgentChan
-			if agents.Err != nil {
-				return agents.Err
-			}
 
-			// avoid scaling down if we had to disable the last agent pod
-			logging.Logger.Debugf("Not scaling down yet - last agent pod (%s) was still enabled", agentNameToDelete)
-			scaleSizeGauge.Set(0)
-			return nil
+		// if it is enabled, disable it so that it won't pick up more jobs
+		if len(agentToDelete) == 1 && agentToDelete[0].Enabled {
+			if args.Action == "dry-run" {
+				logging.Logger.Infof("Dry Run: would have disabled %s", agentNameToDelete)
+			} else {
+				// if the pod that will be deleted when we scale down exists and is enabled, disable it and return...
+				// we don't want to scaledown if there's a chance the agent pod can pick up a job before the scale down happens
+				logging.Logger.Debugf("Disabling agent: %s", agentNameToDelete)
+				disablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
+				go azdClient.DisablePoolAgentAsync(disablePoolAgentChan, agentPoolID, agentToDelete[0].Agent.ID)
+				response := <-disablePoolAgentChan
+				if response.Err != nil {
+					return response.Err
+				}
+				logging.Logger.Debugf("Result of call to disenable agent %s: %s", agentNameToDelete, response.Result)
+
+				// avoid scaling down if we had to disable the last agent pod
+				logging.Logger.Debugf("Not scaling down yet - last agent pod (%s) was still enabled", agentNameToDelete)
+				scaleSizeGauge.Set(0)
+				return nil
+			}
 		}
 
 		// avoid scaling down if last agent pod is active
@@ -154,7 +154,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 			scaleSizeGauge.Set(0)
 			return nil
 		}
-	} else {
+	} else if scalingDirection > 0 {
 		// avoid scaling up too soon after a scale down
 		now := time.Now()
 		nextAllowedScaleUp := lastScaleDown.Add(args.ScaleUp.Delay)
@@ -176,20 +176,35 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 		agentNameToAdd := fmt.Sprintf("%s-%d", deployment.Name, podsToScaleTo)
 		agentToAdd := getAgentDetails(agents, agentNameToAdd)
 
-		// TODO: how do agents get created in ADO?
-		// does a new pod coming online create the agent in ADO?
-		// allowing scale up anyway, but not enabling it, hopefully when it comes online it registers with ADO and that creates it enabled
-		if len(agentToAdd) == 1 && !agentToAdd[0].Enabled {
-			// enable agent in ADO
-			logging.Logger.Debugf("Enabling agent: %s", agentNameToAdd)
+		if args.Action == "dry-run" {
+			logging.Logger.Infof("Dry Run: would have enabled %s", agentNameToAdd)
+		} else {
+			// TODO: how do agents get created in ADO?
+			// does a new pod coming online create the agent in ADO?
+			// allowing scale up anyway, but not enabling it, hopefully when it comes online it registers with ADO and that creates it enabled
+			if len(agentToAdd) == 1 && !agentToAdd[0].Enabled {
+				// enable agent in ADO
+				logging.Logger.Debugf("Enabling agent: %s", agentNameToAdd)
 
-			enablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
-			go azdClient.EnablePoolAgentAsync(enablePoolAgentChan, agentPoolID, agentToAdd[0].Agent.ID)
-			agents := <-enablePoolAgentChan
-			if agents.Err != nil {
-				return agents.Err
+				enablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
+				go azdClient.EnablePoolAgentAsync(enablePoolAgentChan, agentPoolID, agentToAdd[0].Agent.ID)
+				response := <-enablePoolAgentChan
+				if response.Err != nil {
+					return response.Err
+				}
+				logging.Logger.Debugf("Result of call to enable agent %s: %s", agentNameToAdd, response.Result)
 			}
 		}
+	} else {
+		logging.Logger.Debugf("No scaling needed!")
+		scaleSizeGauge.Set(0)
+		return nil
+	}
+
+	if args.Action == "dry-run" {
+		logging.Logger.Infof("Dry Run: would have scaled %s from %d to %d pods", deployment.FriendlyName, podCount, podsToScaleTo)
+		scaleSizeGauge.Set(0)
+		return nil
 	}
 
 	// scale the deployment
@@ -212,13 +227,13 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	return nil
 }
 
-func getAgentDetails(agents azuredevops.PoolAgentsResponse, agentNameToAdd string) []azuredevops.AgentDetails {
+func getAgentDetails(agents azuredevops.PoolAgentsResponse, agentName string) []azuredevops.AgentDetails {
 	for i, agent := range agents.Agents {
-		if agent.Name == agentNameToAdd {
+		if agent.Name == agentName {
 			return agents.Agents[i:i]
 		}
 	}
-	return make([]azuredevops.AgentDetails, 0, 0)
+	return make([]azuredevops.AgentDetails, 0)
 }
 
 func calculatePodsToScaleTo(activeAgentCount int32, queuedJobCount int32, podCount int32, min int32, max int32) (int32, int32) {
