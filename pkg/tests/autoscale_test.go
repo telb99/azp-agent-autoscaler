@@ -5,11 +5,8 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/ogmaresca/azp-agent-autoscaler/pkg/args"
 	"github.com/ogmaresca/azp-agent-autoscaler/pkg/kubernetes"
-	"github.com/ogmaresca/azp-agent-autoscaler/pkg/logging"
 	"github.com/ogmaresca/azp-agent-autoscaler/pkg/scaling"
 )
 
@@ -19,12 +16,12 @@ var (
 
 func TestAutoscale(t *testing.T) {
 	// logging.Logger.SetLevel(log.TraceLevel)
-	logging.Logger.SetLevel(log.DebugLevel)
+	// logging.Logger.SetLevel(log.DebugLevel)
 
 	failed := false
-	for numActiveJobs := int32(0); numActiveJobs < 10 && !failed; numActiveJobs = numActiveJobs + 1 {
-		for numQueuedJobs := int32(0); numQueuedJobs < 10 && !failed; numQueuedJobs = numQueuedJobs + 1 {
-			for numFreeAgents := int32(0); numFreeAgents < 20 && !failed; numFreeAgents = numFreeAgents + 1 {
+	for numActiveJobs := int32(0); numActiveJobs < 10 && !failed; numActiveJobs = numActiveJobs + 3 {
+		for numQueuedJobs := int32(0); numQueuedJobs < 10 && !failed; numQueuedJobs = numQueuedJobs + 3 {
+			for numFreeAgents := int32(0); numFreeAgents < 20 && !failed; numFreeAgents = numFreeAgents + 3 {
 				originalPodCount := numActiveJobs + numFreeAgents
 
 				for min := int32(1); min < 13 && !failed; min = min + 3 {

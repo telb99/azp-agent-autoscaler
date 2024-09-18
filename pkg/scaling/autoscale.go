@@ -122,8 +122,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 		}
 
 		// get the agent that will be deleted if we scale down
-		agentNameToDelete := fmt.Sprintf("%s-%d", deployment.Name, podsToScaleTo)
-		agentToDelete := getAgentDetails(agents, agentNameToDelete)
+		agentNameToDelete, agentToDelete := getAgentDetails(agents, deployment.Name, podsToScaleTo)
 
 		// if it is enabled, disable it so that it won't pick up more jobs
 		if len(agentToDelete) == 1 && agentToDelete[0].Enabled {
@@ -173,8 +172,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 		}
 
 		// get the agent that will be added if we scale up
-		agentNameToAdd := fmt.Sprintf("%s-%d", deployment.Name, podsToScaleTo)
-		agentToAdd := getAgentDetails(agents, agentNameToAdd)
+		agentNameToAdd, agentToAdd := getAgentDetails(agents, deployment.Name, podsToScaleTo)
 
 		if args.Action == "dry-run" {
 			logging.Logger.Infof("Dry Run: would have enabled %s", agentNameToAdd)
@@ -227,13 +225,14 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	return nil
 }
 
-func getAgentDetails(agents azuredevops.PoolAgentsResponse, agentName string) []azuredevops.AgentDetails {
+func getAgentDetails(agents azuredevops.PoolAgentsResponse, deploymentName string, podNumber int32) (string, []azuredevops.AgentDetails) {
+	agentName := fmt.Sprintf("%s-%d", deploymentName, podNumber)
 	for i, agent := range agents.Agents {
 		if agent.Name == agentName {
-			return agents.Agents[i:i]
+			return agentName, agents.Agents[i:i]
 		}
 	}
-	return make([]azuredevops.AgentDetails, 0)
+	return agentName, make([]azuredevops.AgentDetails, 0)
 }
 
 func calculatePodsToScaleTo(activeAgentCount int32, queuedJobCount int32, podCount int32, min int32, max int32) (int32, int32) {
