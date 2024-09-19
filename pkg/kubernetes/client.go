@@ -44,7 +44,7 @@ func makeClient() (Client, error) {
 			}
 			k8sConfig, err = k8sclientcmd.BuildConfigFromFlags("", fmt.Sprintf("%s/.kube/config", home))
 			if err != nil {
-				return nil, fmt.Errorf("Error initializing Kubernetes config: %s", err.Error())
+				return nil, fmt.Errorf("error initializing Kubernetes config: %s", err.Error())
 			}
 		}
 	}
@@ -61,7 +61,7 @@ func (c ClientImpl) GetWorkload(args args.KubernetesArgs) (*Workload, error) {
 	if strings.EqualFold(args.Type, "StatefulSet") {
 		return c.getStatefulSet(args.Namespace, args.Name)
 	} else {
-		return nil, fmt.Errorf("Resource kind %s is not implemented", args.Type)
+		return nil, fmt.Errorf("resource kind %s is not implemented", args.Type)
 	}
 }
 
@@ -70,7 +70,7 @@ func (c ClientImpl) getStatefulSet(namespace string, name string) (*Workload, er
 	if err != nil {
 		return nil, err
 	} else if statefulSet == nil {
-		return nil, fmt.Errorf("Could not find statefulset/%s in namespace %s", name, namespace)
+		return nil, fmt.Errorf("could not find statefulset/%s in namespace %s", name, namespace)
 	} else {
 		return GetWorkload(statefulSet)
 	}
@@ -84,7 +84,7 @@ func (c ClientImpl) VerifyNoHorizontalPodAutoscaler(args args.KubernetesArgs) er
 	}
 	for _, hpa := range hpas.Items {
 		if strings.EqualFold(hpa.Spec.ScaleTargetRef.Kind, args.Type) && hpa.Spec.ScaleTargetRef.Name == args.Name {
-			return fmt.Errorf("Error: %s cannot have a HorizontalPodAutoscaler attached for azp-agent-autoscaler to work", args.FriendlyName())
+			return fmt.Errorf("%s cannot have a HorizontalPodAutoscaler attached for azp-agent-autoscaler to work", args.FriendlyName())
 		}
 	}
 
@@ -101,11 +101,11 @@ func (c ClientImpl) Scale(resource *Workload, replicas int32) error {
 			return statefulsets.GetScale(context.TODO(), resource.Name, metav1.GetOptions{})
 		}
 		doScaleFunc = func(scale *autoscalingv1.Scale) error {
-			scale, err := statefulsets.UpdateScale(context.TODO(), resource.Name, scale, metav1.UpdateOptions{})
+			_, err := statefulsets.UpdateScale(context.TODO(), resource.Name, scale, metav1.UpdateOptions{})
 			return err
 		}
 	} else {
-		return fmt.Errorf("Resource kind %s is not implemented", resource.Kind)
+		return fmt.Errorf("resource kind %s is not implemented", resource.Kind)
 	}
 
 	scale, err := getScaleFunc()
@@ -123,43 +123,43 @@ func (c ClientImpl) Scale(resource *Workload, replicas int32) error {
 func (c ClientImpl) GetEnvValue(podSpec corev1.PodSpec, namespace string, envName string) (string, error) {
 	env := GetEnvVar(podSpec, envName)
 	if env == nil {
-		return "", fmt.Errorf("Could not retrieve environment variable %s", envName)
+		return "", fmt.Errorf("could not retrieve environment variable %s", envName)
 	}
 
 	if env.Value != "" {
 		return env.Value, nil
 	} else if env.ValueFrom != nil {
 		if env.ValueFrom.FieldRef != nil {
-			return "", fmt.Errorf("Error getting value for environment variable %s: fieldRef is not supported", env.Name)
+			return "", fmt.Errorf("error getting value for environment variable %s: fieldRef is not supported", env.Name)
 		} else if env.ValueFrom.ResourceFieldRef != nil {
-			return "", fmt.Errorf("Error getting value for environment variable %s: resourceFieldRef is not supported", env.Name)
+			return "", fmt.Errorf("error getting value for environment variable %s: resourceFieldRef is not supported", env.Name)
 		} else if env.ValueFrom.ConfigMapKeyRef != nil {
 			configmap, err := c.client.CoreV1().ConfigMaps(namespace).Get(context.TODO(), env.ValueFrom.ConfigMapKeyRef.Name, metav1.GetOptions{})
 			if err != nil {
-				return "", fmt.Errorf("Error getting value from configmap %s for environment variable %s: %s", env.ValueFrom.ConfigMapKeyRef.Name, envName, err.Error())
+				return "", fmt.Errorf("error getting value from configmap %s for environment variable %s: %s", env.ValueFrom.ConfigMapKeyRef.Name, envName, err.Error())
 			}
 			value, exists := configmap.Data[env.ValueFrom.ConfigMapKeyRef.Key]
 			if !exists {
-				return "", fmt.Errorf("Error getting value from configmap %s for environment variable %s: key %s does not exist", env.ValueFrom.ConfigMapKeyRef.Name, envName, env.ValueFrom.ConfigMapKeyRef.Key)
+				return "", fmt.Errorf("error getting value from configmap %s for environment variable %s: key %s does not exist", env.ValueFrom.ConfigMapKeyRef.Name, envName, env.ValueFrom.ConfigMapKeyRef.Key)
 			}
 			return value, nil
 		} else if env.ValueFrom.SecretKeyRef != nil {
 			secret, err := c.client.CoreV1().Secrets(namespace).Get(context.TODO(), env.ValueFrom.SecretKeyRef.Name, metav1.GetOptions{})
 			if err != nil {
-				return "", fmt.Errorf("Error getting value from secret %s for environment variable %s: %s", env.ValueFrom.SecretKeyRef.Name, envName, err.Error())
+				return "", fmt.Errorf("error getting value from secret %s for environment variable %s: %s", env.ValueFrom.SecretKeyRef.Name, envName, err.Error())
 			}
 			value, exists := secret.Data[env.ValueFrom.SecretKeyRef.Key]
 			if !exists {
-				return "", fmt.Errorf("Error getting value from secret %s for environment variable %s: key %s does not exist", env.ValueFrom.SecretKeyRef.Name, envName, env.ValueFrom.SecretKeyRef.Key)
+				return "", fmt.Errorf("error getting value from secret %s for environment variable %s: key %s does not exist", env.ValueFrom.SecretKeyRef.Name, envName, env.ValueFrom.SecretKeyRef.Key)
 			}
 			decodedValue, err := base64.StdEncoding.DecodeString(string(value))
 			if err != nil {
-				return "", fmt.Errorf("Error getting value from secret %s for environment variable %s: could not decode value for %s", env.ValueFrom.SecretKeyRef.Name, envName, env.ValueFrom.SecretKeyRef.Key)
+				return "", fmt.Errorf("error getting value from secret %s for environment variable %s: could not decode value for %s", env.ValueFrom.SecretKeyRef.Name, envName, env.ValueFrom.SecretKeyRef.Key)
 			}
 			return string(decodedValue), nil
 		}
 	}
-	return "", fmt.Errorf("Error getting value for environment variable %s", env.Name)
+	return "", fmt.Errorf("error getting value for environment variable %s", env.Name)
 }
 
 // GetPods gets all pods attached to some workload
