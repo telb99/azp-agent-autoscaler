@@ -90,7 +90,7 @@ func (c ClientImpl) executeGetRequest(endpoint string, response interface{}) err
 
 	err = json.NewDecoder(httpResponse.Body).Decode(response)
 	if err != nil {
-		return fmt.Errorf("Error - could not parse JSON response from %s: %s", endpoint, err.Error())
+		return fmt.Errorf("Error - could not parse JSON response from %s: %s", c.baseURL+endpoint, err.Error())
 	}
 
 	return nil
@@ -129,7 +129,7 @@ func (c ClientImpl) executePatchRequest(endpoint string, response interface{}, j
 
 	err = json.NewDecoder(httpResponse.Body).Decode(response)
 	if err != nil {
-		return fmt.Errorf("Error - could not parse JSON response from %s: %s", endpoint, err.Error())
+		return fmt.Errorf("Error - could not parse JSON response from %s: %s", c.baseURL+endpoint, err.Error())
 	}
 
 	return nil
