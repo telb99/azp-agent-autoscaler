@@ -14,7 +14,7 @@ import (
 const getPoolsEndpoint = "/_apis/distributedtask/pools?poolName=%s"
 
 // Parameter 1 is the Pool ID
-const getPoolAgentsEndpoint = "/_apis/distributedtask/pools/%d/agents?includeAssignedRequest=true"
+const getPoolAgentsEndpoint = "/_apis/distributedtask/pools/%d/agents?includeCapabilities=true&includeAssignedRequest=true"
 
 // Parameter 1 is the Pool ID
 const getPoolJobRequestsEndpoint = "/_apis/distributedtask/pools/%d/jobrequests"
@@ -23,7 +23,7 @@ const getPoolJobRequestsEndpoint = "/_apis/distributedtask/pools/%d/jobrequests"
 // Parameter 2 is the Agent ID to patch
 const patchPoolAgentEndpoint = "/_apis/distributedtask/pools/%d/agents/%d"
 
-const acceptHeader = "application/json;api-version=7.1-preview.1 "
+const acceptHeader = "application/json;api-version=7.1-preview.1"
 
 var (
 	azdDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -202,7 +202,7 @@ func (c ClientImpl) EnablePoolAgent(poolID int, agentID int) (string, error) {
 
 	response := new(EnableDisablePoolAgentResult)
 	endpoint := fmt.Sprintf(patchPoolAgentEndpoint, poolID, agentID)
-	jsonBody := `{"enabled": true}`
+	jsonBody := fmt.Sprintf(`{"id":%d,"enabled":true}`, agentID)
 	err := c.executePatchRequest(endpoint, response, jsonBody)
 	if err != nil {
 		return "", err
@@ -219,7 +219,7 @@ func (c ClientImpl) DisablePoolAgent(poolID int, agentID int) (string, error) {
 
 	response := new(EnableDisablePoolAgentResult)
 	endpoint := fmt.Sprintf(patchPoolAgentEndpoint, poolID, agentID)
-	jsonBody := `{"enabled": false}`
+	jsonBody := fmt.Sprintf(`{"id":%d,"enabled":false}`, agentID)
 	err := c.executePatchRequest(endpoint, response, jsonBody)
 	if err != nil {
 		return "", err

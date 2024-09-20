@@ -35,11 +35,12 @@ func Agents(num int32, free bool, startPos int32) []azuredevops.AgentDetails {
 			},
 		}
 
-		agent.Enabled = true
 		if free {
 			agent.AssignedRequest = nil
+			agent.Enabled = false
 		} else {
 			agent.AssignedRequest = &Jobs(1, false, []azuredevops.AgentDetails{agent}, 0, 0)[0]
+			agent.Enabled = true
 		}
 		agents = append(agents, agent)
 	}

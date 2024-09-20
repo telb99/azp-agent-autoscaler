@@ -89,14 +89,16 @@ func TestAutoscale(t *testing.T) {
 							}
 
 							scaling.Reset()
-							err := scaling.Autoscale(azdClient, agentPoolID, kubernetes.MakeFromClient(k8sClient), k8sClient.GetWorkloadNoError(args.Kubernetes), args)
+							msg, err := scaling.Autoscale(azdClient, agentPoolID, kubernetes.MakeFromClient(k8sClient), k8sClient.GetWorkloadNoError(args.Kubernetes), args)
 							if err != nil {
-								t.Error(err.Error())
+								t.Errorf("%s - %s", msg, err.Error())
+							} else {
+								t.Log(msg)
 							}
 
 							if k8sClient.Counts.NumPods != expectedPodCount {
 								failed = true
-								t.Fatalf("Expected %d pods (from %d), but got %d", expectedPodCount, originalPodCount, k8sClient.Counts.NumPods)
+								t.Fatalf("Expected %d pods (from %d), but got %d with message: %s", expectedPodCount, originalPodCount, k8sClient.Counts.NumPods, msg)
 							}
 						})
 					}
@@ -150,13 +152,16 @@ func TestAutoscalePodNames(t *testing.T) {
 		}
 
 		scaling.Reset()
-		err := scaling.Autoscale(azdClient, agentPoolID, kubernetes.MakeFromClient(k8sClient), k8sClient.GetWorkloadNoError(args.Kubernetes), args)
+
+		msg, err := scaling.Autoscale(azdClient, agentPoolID, kubernetes.MakeFromClient(k8sClient), k8sClient.GetWorkloadNoError(args.Kubernetes), args)
 		if err != nil {
-			t.Error(err.Error())
+			t.Errorf("%s - %s", msg, err.Error())
 		}
 
 		if k8sClient.Counts.NumPods != expectedPodCount {
-			t.Fatalf("Expected %d pods (no scale down), but got %d", expectedPodCount, k8sClient.Counts.NumPods)
+			t.Fatalf("Expected %d pods (no scale down), but got %d with message: %s", expectedPodCount, k8sClient.Counts.NumPods, msg)
+		} else if err == nil {
+			t.Log(msg)
 		}
 	})
 }

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/ogmaresca/azp-agent-autoscaler/pkg/args"
@@ -97,8 +99,10 @@ func main() {
 		logging.Logger.Debugf("Agent pool %s has ID %d", agentPoolName, *agentPoolID)
 	}
 
+	lastAutoscaleMsg := ""
+	lastMessageLogged := time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
 	for {
-		err := scaling.Autoscale(azdClient, *agentPoolID, k8sClient, deployment.Resource, args)
+		msg, err := scaling.Autoscale(azdClient, *agentPoolID, k8sClient, deployment.Resource, args)
 		if err != nil {
 			switch t := err.(type) {
 			case azuredevops.HTTPError:
@@ -111,10 +115,12 @@ func main() {
 					continue
 				}
 			}
-			logging.Logger.Panicf("Error autoscaling statefulset/%s: %s", deployment.Resource.Name, err.Error())
+			logging.Logger.Panicf("Error autoscaling statefulset/%s: %s - %s", deployment.Resource.Name, msg, err.Error())
+		} else if msg != lastAutoscaleMsg || time.Now().After(lastMessageLogged.Add(15*time.Minute)) || logging.Logger.IsLevelEnabled(log.DebugLevel) {
+			lastMessageLogged = time.Now()
+			logging.Logger.Info(msg)
+			lastAutoscaleMsg = msg
+			time.Sleep(args.Rate)
 		}
-		time.Sleep(args.Rate)
 	}
-
-	logging.Logger.Info("Exiting azp-agent-autoscaler")
 }
