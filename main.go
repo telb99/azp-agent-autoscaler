@@ -82,8 +82,6 @@ func main() {
 	agentPoolName, err := k8sClient.Sync().GetEnvValue(deployment.Resource.PodTemplateSpec.Spec, deployment.Resource.Namespace, poolNameEnvVar)
 	if err != nil {
 		logging.Logger.Panicf("Could not retrieve environment variable %s from %s: %s", poolNameEnvVar, deployment.Resource.FriendlyName, err)
-	} else {
-		logging.Logger.Debugf("Found agent pool %s from %s", agentPoolName, deployment.Resource.FriendlyName)
 	}
 
 	var agentPoolID *int
@@ -95,9 +93,9 @@ func main() {
 	}
 	if agentPoolID == nil {
 		logging.Logger.Panicf("Error - could not find an agent pool with name %s", agentPoolName)
-	} else {
-		logging.Logger.Debugf("Agent pool %s has ID %d", agentPoolName, *agentPoolID)
 	}
+
+	logging.Logger.Infof("Found ADO Agent Pool %s (ID %d) from %s", agentPoolName, *agentPoolID, deployment.Resource.FriendlyName)
 
 	lastAutoscaleMsg := ""
 	lastMessageLogged := time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
