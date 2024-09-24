@@ -120,98 +120,120 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	desiredAgentsGauge.Set(float64(desiredAgentCount))
 	queuedPodsGauge.Set(float64(queuedJobCount))
 
-	// get the agent that will be affected by any scaling activity
-	affectedPod := podsToScaleTo
-	if scalingDirection >= 0 {
-		affectedPod = podsToScaleTo - 1
-	}
-	affectedAgents := getAgentDetails(agents, deployment.Name, affectedPod)
-	if len(affectedAgents) == 0 {
-		return fmt.Sprintf("trying to get agent details for %s-%d", deployment.Name, affectedPod), fmt.Errorf("unable to locate agent details by HOSTNAME in agent capabilities")
-	} else if len(affectedAgents) > 1 {
-		return fmt.Sprintf("trying to get agent details for %s-%d", deployment.Name, affectedPod), fmt.Errorf("found %d agents matching by HOSTNAME in agent capabilities", len(affectedAgents))
+	// avoid scaling up or down if there are unschedulable pods
+	if unschedulablePodCount > 0 {
+		scaleSizeGauge.Set(0)
+		return fmt.Sprintf("Not scaling - there are %d unschedulable pods", unschedulablePodCount), nil
 	}
 
-	affectedAgent := affectedAgents[0]
-
-	if scalingDirection < 0 {
-		if podsToScaleDownTo < 0 {
-			// avoid scaling down too soon after a scale up
-			now := time.Now()
-			nextAllowedScaleDown := lastScaleUp.Add(args.ScaleDown.Delay)
-			if now.Before(nextAllowedScaleDown) {
-				scaleDownLimitedCounter.Inc()
-				scaleSizeGauge.Set(0)
-				return fmt.Sprintf("Not scaling down %s from %d to %d (wants %d) - cannot scale down until %s", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount, nextAllowedScaleDown.String()), nil
-			}
-		}
-
-		podsToScaleDownTo = podsToScaleTo
-
-		// if it is enabled, disable it so that it won't pick up more jobs
-		if affectedAgent.Enabled {
-			if args.Action == "dry-run" {
-				logging.Logger.Debugf("Dry Run: would have disabled %s", affectedAgent.Name)
-			} else {
-				// if the pod that will be deleted when we scale down exists and is enabled, disable it and return...
-				// we don't want to scale down if there's a chance the agent pod can pick up a job before the scale down happens
-				logging.Logger.Debugf("Disabling agent %s", affectedAgent.Name)
-
-				disablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
-				go azdClient.DisablePoolAgentAsync(disablePoolAgentChan, agentPoolID, affectedAgent.Agent.ID)
-				response := <-disablePoolAgentChan
-				if response.Err != nil {
-					return fmt.Sprintf("trying to disable agent: %s", affectedAgent.Name), response.Err
-				}
-
-				// avoid scaling down if we had to disable the last agent pod
-				scaleSizeGauge.Set(0)
-				return fmt.Sprintf("Not scaling down yet - agent (%s) was still enabled", affectedAgent.Name), nil
-			}
-		}
-
-		// avoid scaling down if last agent pod is active
-		if activeAgentNames.Contains(affectedAgent.Name) {
-			scaleSizeGauge.Set(0)
-			return fmt.Sprintf("Not scaling down yet - agent (%s) is still active", affectedAgent.Name), nil
-		}
-	} else if scalingDirection > 0 {
-		// avoid scaling up too soon after a scale down
-		now := time.Now()
-		nextAllowedScaleUp := lastScaleDown.Add(args.ScaleUp.Delay)
-		if now.Before(nextAllowedScaleUp) {
-			scaleUpLimitedCounter.Inc()
-			scaleSizeGauge.Set(0)
-			return fmt.Sprintf("Not scaling up %s from %d to %d (wants %d) - cannot scale up until %s", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount, nextAllowedScaleUp.String()), nil
-		}
-
-		// avoid scaling up if there are unschedulable pods
-		if unschedulablePodCount > 0 {
-			scaleSizeGauge.Set(0)
-			return fmt.Sprintf("Not scaling up - there are %d unschedulable pods", unschedulablePodCount), nil
-		}
-
-		// TODO: how do agents get created in ADO?
-		// does a new pod coming online create the agent in ADO?
-		// allowing scale up anyway, but not enabling it, hopefully when it comes online it registers with ADO and that creates it enabled
-		if !affectedAgent.Enabled {
-			if args.Action == "dry-run" {
-				logging.Logger.Debugf("Dry Run: would have enabled %s", affectedAgent.Name)
-			} else {
-				// enable agent in ADO
-				logging.Logger.Debugf("Enabling agent %s", affectedAgent.Name)
-
-				enablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
-				go azdClient.EnablePoolAgentAsync(enablePoolAgentChan, agentPoolID, affectedAgent.Agent.ID)
-				response := <-enablePoolAgentChan
-				if response.Err != nil {
-					return fmt.Sprintf("trying to enable agent %s", affectedAgent.Name), response.Err
-				}
-			}
-		}
-	} else {
+	if scalingDirection == 0 {
 		scaleSizeGauge.Set(0)
 		return fmt.Sprintf("%d agent pods, scaling not needed (wants %d)", podCount, desiredAgentCount), nil
+	} else {
+		// get the agent that will be affected by any scaling activity
+		affectedPod := podsToScaleTo
+		if scalingDirection >= 0 {
+			affectedPod = podsToScaleTo - 1
+		}
+		affectedAgents := getAgentDetails(agents, deployment.Name, affectedPod)
+		if len(affectedAgents) == 0 {
+			return fmt.Sprintf("trying to get agent details for %s-%d", deployment.Name, affectedPod), fmt.Errorf("unable to locate agent details by HOSTNAME in agent capabilities")
+		} else if len(affectedAgents) > 1 {
+			return fmt.Sprintf("trying to get agent details for %s-%d", deployment.Name, affectedPod), fmt.Errorf("found %d agents matching by HOSTNAME in agent capabilities", len(affectedAgents))
+		}
+
+		affectedAgent := affectedAgents[0]
+
+		if scalingDirection < 0 {
+			if podsToScaleDownTo < 0 {
+				// avoid scaling down too soon after a scale up
+				now := time.Now()
+				nextAllowedScaleDown := lastScaleUp.Add(args.ScaleDown.Delay)
+				if now.Before(nextAllowedScaleDown) {
+					scaleDownLimitedCounter.Inc()
+					scaleSizeGauge.Set(0)
+					return fmt.Sprintf("Not scaling down %s from %d to %d (wants %d) - cannot scale down until %s", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount, nextAllowedScaleDown.String()), nil
+				}
+				podsToScaleDownTo = podsToScaleTo
+			}
+
+			// if it is enabled, disable it so that it won't pick up more jobs
+			if affectedAgent.Enabled {
+				if args.Action == "dry-run" {
+					logging.Logger.Debugf("Dry Run: would have disabled %s", affectedAgent.Name)
+				} else {
+					// if the pod that will be deleted when we scale down exists and is enabled, disable it and return...
+					// we don't want to scale down if there's a chance the agent pod can pick up a job before the scale down happens
+					logging.Logger.Debugf("Disabling agent %s", affectedAgent.Name)
+
+					disablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
+					go azdClient.DisablePoolAgentAsync(disablePoolAgentChan, agentPoolID, affectedAgent.Agent.ID)
+					response := <-disablePoolAgentChan
+					if response.Err != nil {
+						return fmt.Sprintf("trying to disable agent: %s", affectedAgent.Name), response.Err
+					}
+
+					// avoid scaling down if we had to disable the last agent pod
+					scaleSizeGauge.Set(0)
+					return fmt.Sprintf("Not scaling down yet - agent %s was still enabled", affectedAgent.Name), nil
+				}
+			}
+
+			// avoid scaling down if last agent pod is active
+			if activeAgentNames.Contains(affectedAgent.Name) {
+				scaleSizeGauge.Set(0)
+				return fmt.Sprintf("Not scaling down yet - agent %s is still active", affectedAgent.Name), nil
+			}
+
+			// if there is a job that finished recently, avoid scaling down to give the pod chance to finish updating ADO with logs and state
+			if affectedAgent.LastCompletedRequest != nil {
+				if affectedAgent.AssignedRequest != nil {
+					scaleSizeGauge.Set(0)
+					logging.Logger.Debugf("AssignedRequest - assigned request FinishTime: %s, Result: %s, RequestID: %d", affectedAgent.AssignedRequest.FinishTime, affectedAgent.AssignedRequest.Result, affectedAgent.AssignedRequest.RequestID)
+					return "while trying to scale down", fmt.Errorf("agent %s still has an assigned request", affectedAgent.Name)
+				}
+				logging.Logger.Debugf("LastCompletedRequest - FinishTime: %s, Result: %s, RequestId: %d", affectedAgent.LastCompletedRequest.FinishTime, affectedAgent.LastCompletedRequest.Result, affectedAgent.LastCompletedRequest.RequestID)
+				jobFinishTime, err := time.Parse(time.RFC3339Nano, affectedAgent.LastCompletedRequest.FinishTime)
+				if err != nil {
+					scaleSizeGauge.Set(0)
+					return fmt.Sprintf("Not scaling down yet - agent %s, unable to parse last completed request finish time: %s", affectedAgent.Name, affectedAgent.LastCompletedRequest.FinishTime), nil
+				}
+				minimumJobSettleTime := time.Now().UTC().Add(time.Duration(-30) * time.Second)
+				logging.Logger.Debugf("LastCompletedRequest - checking FinishTime: %s vs minimumJobSettleTime: %s, difference: %d", affectedAgent.LastCompletedRequest.FinishTime, minimumJobSettleTime, jobFinishTime.Compare(minimumJobSettleTime))
+				if jobFinishTime.After(minimumJobSettleTime) {
+					scaleSizeGauge.Set(0)
+					return fmt.Sprintf("Not scaling down yet - agent %s recently finished the last job (at %s)", affectedAgent.Name, affectedAgent.LastCompletedRequest.FinishTime), nil
+				}
+			}
+		} else if scalingDirection > 0 {
+			// avoid scaling up too soon after a scale down
+			now := time.Now()
+			nextAllowedScaleUp := lastScaleDown.Add(args.ScaleUp.Delay)
+			if now.Before(nextAllowedScaleUp) {
+				scaleUpLimitedCounter.Inc()
+				scaleSizeGauge.Set(0)
+				return fmt.Sprintf("Not scaling up %s from %d to %d (wants %d) - cannot scale up until %s", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount, nextAllowedScaleUp.String()), nil
+			}
+
+			// TODO: how do agents get created in ADO?
+			// does a new pod coming online create the agent in ADO?
+			// allowing scale up anyway, but not enabling it, hopefully when it comes online it registers with ADO and that creates it enabled
+			if !affectedAgent.Enabled {
+				if args.Action == "dry-run" {
+					logging.Logger.Debugf("Dry Run: would have enabled %s", affectedAgent.Name)
+				} else {
+					// enable agent in ADO
+					logging.Logger.Debugf("Enabling agent %s", affectedAgent.Name)
+
+					enablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
+					go azdClient.EnablePoolAgentAsync(enablePoolAgentChan, agentPoolID, affectedAgent.Agent.ID)
+					response := <-enablePoolAgentChan
+					if response.Err != nil {
+						return fmt.Sprintf("trying to enable agent %s", affectedAgent.Name), response.Err
+					}
+				}
+			}
+		}
 	}
 
 	if args.Action == "dry-run" {
@@ -259,7 +281,7 @@ func getAgentDetails(agents azuredevops.PoolAgentsResponse, deploymentName strin
 			if agent.Status != "online" {
 				statusMessage = agent.Status
 			}
-			logging.Logger.Debugf("found agent: \"%s\" (ID %d), pod \"%s\" [%s | %s | %s]", agent.Name, agent.ID, podName, activeMessage, enabledMessage, statusMessage)
+			logging.Logger.Debugf("found agent: %s (ID %d), pod %s [%s | %s | %s]", agent.Name, agent.ID, podName, activeMessage, enabledMessage, statusMessage)
 			return agents.Agents[i : i+1]
 		} else {
 			logging.Logger.Tracef("getAgentDetails - not match: agent.Name: %s, deploymentName: %s, podNumber: %d, podName: %s, i: %d, agentHostName: %s", agent.Name, deploymentName, podNumber, podName, i, agentHostName)

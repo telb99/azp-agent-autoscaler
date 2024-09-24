@@ -15,8 +15,9 @@ type Agent struct {
 // curl -u user:token https://dev.azure.com/organization/_apis/distributedtask/pools/9/agents/8?includeAssignedRequest=true'
 type AgentDetails struct {
 	Agent
-	SystemCapabilities map[string]string `json:"systemCapabilities"`
-	MaxParallelism     int               `json:"maxParallelism"`
-	CreatedOn          string            `json:"createdOn"`
-	AssignedRequest    *JobRequest       `json:"assignedRequest"`
+	SystemCapabilities   map[string]string `json:"systemCapabilities"`
+	MaxParallelism       int               `json:"maxParallelism"`
+	CreatedOn            string            `json:"createdOn"`
+	AssignedRequest      *JobRequest       `json:"assignedRequest"`
+	LastCompletedRequest *JobRequest       `json:"lastCompletedRequest"`
 }

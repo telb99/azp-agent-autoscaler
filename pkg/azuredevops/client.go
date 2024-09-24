@@ -14,7 +14,7 @@ import (
 const getPoolsEndpoint = "/_apis/distributedtask/pools?poolName=%s"
 
 // Parameter 1 is the Pool ID
-const getPoolAgentsEndpoint = "/_apis/distributedtask/pools/%d/agents?includeCapabilities=true&includeAssignedRequest=true"
+const getPoolAgentsEndpoint = "/_apis/distributedtask/pools/%d/agents?includeCapabilities=true&includeAssignedRequest=true&includeLastCompletedRequest=true"
 
 // Parameter 1 is the Pool ID
 const getPoolJobRequestsEndpoint = "/_apis/distributedtask/pools/%d/jobrequests"
