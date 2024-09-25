@@ -22,6 +22,7 @@ var (
 	// scaling down takes multiple passes to ensure that the agent is disabled and not active
 	// don't allow scaling up or re-enabling of the agent to be scaled down until the scaleset has been scaled down
 	podsToScaleDownTo = int32(-1)
+	lastPodsToScaleTo = int32(-1)
 	lastScaleDown     = time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
 	lastScaleUp       = time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
 
@@ -73,6 +74,7 @@ var (
 
 // Reset the auto scale state - for testing purposes
 func Reset() {
+	lastPodsToScaleTo = int32(-1)
 	podsToScaleDownTo = int32(-1)
 	lastScaleDown = time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
 	lastScaleUp = time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -100,15 +102,6 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	// Determine the number of jobs that are queued
 	queuedJobCount := getQueuedJobCount(jobs.Jobs, activeAgentNames)
 
-	logging.Logger.Debugf("Found %d active agents and %d queued jobs.", activeAgentCount, queuedJobCount)
-
-	if runningPodCount != podCount {
-		if unschedulablePodCount != pendingPodCount || failedPodCount != 0 {
-			scaleSizeGauge.Set(0)
-			return fmt.Sprintf("Not scaling - there are %d pending pods and %d failed pods.", pendingPodCount, failedPodCount), nil
-		}
-	}
-
 	// Calculate number of pods to scale to taking into account min and max limits
 	desiredAgentCount, scalingDirection, podsToScaleTo := calculatePodsToScaleTo(activeAgentCount, queuedJobCount, podCount, args.Min, args.Max)
 
@@ -120,16 +113,18 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	desiredAgentsGauge.Set(float64(desiredAgentCount))
 	queuedPodsGauge.Set(float64(queuedJobCount))
 
-	// avoid scaling up or down if there are unschedulable pods
-	if unschedulablePodCount > 0 {
+	if podsToScaleDownTo == -1 && scalingDirection == 0 && runningPodCount == podCount && (lastPodsToScaleTo == -1 || lastPodsToScaleTo == runningPodCount) {
 		scaleSizeGauge.Set(0)
-		return fmt.Sprintf("Not scaling - there are %d unschedulable pods", unschedulablePodCount), nil
-	}
-
-	if scalingDirection == 0 {
+		return fmt.Sprintf("Not scaling - already at %d pods (wants %d)", podCount, desiredAgentCount), nil
+	} else if lastPodsToScaleTo != -1 && lastPodsToScaleTo != runningPodCount {
 		scaleSizeGauge.Set(0)
-		return fmt.Sprintf("%d agent pods, scaling not needed (wants %d)", podCount, desiredAgentCount), nil
+		return fmt.Sprintf("Not scaling - scaling to %d is still in progress (at %d with %d running, wants %d)", lastPodsToScaleTo, podCount, runningPodCount, desiredAgentCount), nil
 	} else {
+		if runningPodCount != podCount {
+			scaleSizeGauge.Set(0)
+			return fmt.Sprintf("Not scaling from %d to %d (wants %d) - there are %d unschedulable pods, %d pending pods, %d failed pods.", podCount, podsToScaleTo, desiredAgentCount, unschedulablePodCount, pendingPodCount, failedPodCount), nil
+		}
+
 		// get the agent that will be affected by any scaling activity
 		affectedPod := podsToScaleTo
 		if scalingDirection >= 0 {
@@ -152,7 +147,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 				if now.Before(nextAllowedScaleDown) {
 					scaleDownLimitedCounter.Inc()
 					scaleSizeGauge.Set(0)
-					return fmt.Sprintf("Not scaling down %s from %d to %d (wants %d) - cannot scale down until %s", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount, nextAllowedScaleDown.String()), nil
+					return fmt.Sprintf("Not scaling down yet - cannot scale down until %s (wants %d)", nextAllowedScaleDown.String(), desiredAgentCount), nil
 				}
 				podsToScaleDownTo = podsToScaleTo
 			}
@@ -164,8 +159,6 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 				} else {
 					// if the pod that will be deleted when we scale down exists and is enabled, disable it and return...
 					// we don't want to scale down if there's a chance the agent pod can pick up a job before the scale down happens
-					logging.Logger.Debugf("Disabling agent %s", affectedAgent.Name)
-
 					disablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
 					go azdClient.DisablePoolAgentAsync(disablePoolAgentChan, agentPoolID, affectedAgent.Agent.ID)
 					response := <-disablePoolAgentChan
@@ -175,31 +168,34 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 
 					// avoid scaling down if we had to disable the last agent pod
 					scaleSizeGauge.Set(0)
-					return fmt.Sprintf("Not scaling down yet - agent %s was still enabled", affectedAgent.Name), nil
+					return fmt.Sprintf("Not scaling down yet - agent %s was still enabled (wants %d)", affectedAgent.Name, desiredAgentCount), nil
 				}
 			}
 
 			// avoid scaling down if last agent pod is active
 			if activeAgentNames.Contains(affectedAgent.Name) {
 				scaleSizeGauge.Set(0)
-				return fmt.Sprintf("Not scaling down yet - agent %s is still active", affectedAgent.Name), nil
+				return fmt.Sprintf("Not scaling down yet - agent %s is still active (wants %d)", affectedAgent.Name, desiredAgentCount), nil
 			}
 
 			// if there is a job that finished recently, avoid scaling down to give the pod chance to finish updating ADO with logs and state
 			if affectedAgent.LastCompletedRequest != nil {
-				if affectedAgent.AssignedRequest != nil {
-					scaleSizeGauge.Set(0)
-					logging.Logger.Debugf("AssignedRequest - assigned request FinishTime: %s, Result: %s, RequestID: %d", affectedAgent.AssignedRequest.FinishTime, affectedAgent.AssignedRequest.Result, affectedAgent.AssignedRequest.RequestID)
-					return "while trying to scale down", fmt.Errorf("agent %s still has an assigned request", affectedAgent.Name)
-				}
-				logging.Logger.Debugf("LastCompletedRequest - FinishTime: %s, Result: %s, RequestId: %d", affectedAgent.LastCompletedRequest.FinishTime, affectedAgent.LastCompletedRequest.Result, affectedAgent.LastCompletedRequest.RequestID)
 				jobFinishTime, err := time.Parse(time.RFC3339Nano, affectedAgent.LastCompletedRequest.FinishTime)
 				if err != nil {
 					scaleSizeGauge.Set(0)
 					return fmt.Sprintf("Not scaling down yet - agent %s, unable to parse last completed request finish time: %s", affectedAgent.Name, affectedAgent.LastCompletedRequest.FinishTime), nil
 				}
 				minimumJobSettleTime := time.Now().UTC().Add(time.Duration(-30) * time.Second)
-				logging.Logger.Debugf("LastCompletedRequest - checking FinishTime: %s vs minimumJobSettleTime: %s, difference: %d", affectedAgent.LastCompletedRequest.FinishTime, minimumJobSettleTime, jobFinishTime.Compare(minimumJobSettleTime))
+				finishTimeCompareMessage := ""
+				if condition := jobFinishTime.Compare(minimumJobSettleTime); condition == 0 {
+					finishTimeCompareMessage = "equal to"
+				} else if condition < 0 {
+					finishTimeCompareMessage = "before"
+				} else {
+					finishTimeCompareMessage = "after"
+
+				}
+				logging.Logger.Debugf("LastCompletedRequest - finish time is %s the 30s job finish settle time (Result: %s, RequestId: %d, finishTime: %s, minimumJobSettleTime: %s", finishTimeCompareMessage, affectedAgent.LastCompletedRequest.Result, affectedAgent.LastCompletedRequest.RequestID, affectedAgent.LastCompletedRequest.FinishTime, minimumJobSettleTime)
 				if jobFinishTime.After(minimumJobSettleTime) {
 					scaleSizeGauge.Set(0)
 					return fmt.Sprintf("Not scaling down yet - agent %s recently finished the last job (at %s)", affectedAgent.Name, affectedAgent.LastCompletedRequest.FinishTime), nil
@@ -212,7 +208,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 			if now.Before(nextAllowedScaleUp) {
 				scaleUpLimitedCounter.Inc()
 				scaleSizeGauge.Set(0)
-				return fmt.Sprintf("Not scaling up %s from %d to %d (wants %d) - cannot scale up until %s", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount, nextAllowedScaleUp.String()), nil
+				return fmt.Sprintf("Not scaling up yet - cannot scale up until %s", nextAllowedScaleUp.String()), nil
 			}
 
 			// TODO: how do agents get created in ADO?
@@ -223,14 +219,13 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 					logging.Logger.Debugf("Dry Run: would have enabled %s", affectedAgent.Name)
 				} else {
 					// enable agent in ADO
-					logging.Logger.Debugf("Enabling agent %s", affectedAgent.Name)
-
 					enablePoolAgentChan := make(chan azuredevops.EnableDisablePoolAgentResponse)
 					go azdClient.EnablePoolAgentAsync(enablePoolAgentChan, agentPoolID, affectedAgent.Agent.ID)
 					response := <-enablePoolAgentChan
 					if response.Err != nil {
 						return fmt.Sprintf("trying to enable agent %s", affectedAgent.Name), response.Err
 					}
+					logging.Logger.Debugf("Enabled agent %s", affectedAgent.Name)
 				}
 			}
 		}
@@ -238,11 +233,10 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 
 	if args.Action == "dry-run" {
 		scaleSizeGauge.Set(0)
-		return fmt.Sprintf("Dry Run: would have scaled %s from %d to %d pods (wants %d)", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount), nil
+		return fmt.Sprintf("Dry Run: would have scaled from %d to %d pods (wants %d)", podCount, podsToScaleTo, desiredAgentCount), nil
 	}
 
 	// scale the deployment
-	logging.Logger.Debugf("Scaling %s from %d to %d pods (wants %d)", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount)
 	scaleErr := k8sClient.Sync().Scale(deployment, podsToScaleTo)
 	if scaleErr != nil {
 		return fmt.Sprintf("trying to scale from %d to %d", podCount, podsToScaleTo), scaleErr
@@ -259,8 +253,9 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 	scaleSizeGauge.Set(float64(podsToScaleTo - podCount))
 
 	podsToScaleDownTo = -1
+	lastPodsToScaleTo = podsToScaleTo
 
-	return fmt.Sprintf("Scaled %s from %d to %d (wants %d)", deployment.FriendlyName, podCount, podsToScaleTo, desiredAgentCount), nil
+	return fmt.Sprintf("Scaled from %d to %d (wants %d)", podCount, podsToScaleTo, desiredAgentCount), nil
 }
 
 func getAgentDetails(agents azuredevops.PoolAgentsResponse, deploymentName string, podNumber int32) []azuredevops.AgentDetails {
@@ -293,7 +288,6 @@ func getAgentDetails(agents azuredevops.PoolAgentsResponse, deploymentName strin
 
 func calculatePodsToScaleTo(activeAgentCount int32, queuedJobCount int32, podCount int32, min int32, max int32) (int32, int32, int32) {
 	desiredAgentCount := math.MaxInt32(min, math.MinInt32(max, activeAgentCount+queuedJobCount))
-	logging.Logger.Debugf("desiredAgentCount: %d (activeAgentCount: %d + queuedJobCount: %d, min: %d, max: %d)", desiredAgentCount, activeAgentCount, queuedJobCount, min, max)
 
 	if podsToScaleDownTo > 0 {
 		// continue scaling down
@@ -301,10 +295,8 @@ func calculatePodsToScaleTo(activeAgentCount int32, queuedJobCount int32, podCou
 		return desiredAgentCount, -1, podsToScaleDownTo
 	} else {
 		scalingDirection := math.MaxInt32(-1, math.MinInt32(1, desiredAgentCount-podCount))
-		logging.Logger.Debugf("scalingDirection: %d (desiredAgentCount: %d - podCount: %d)", scalingDirection, desiredAgentCount, podCount)
-
 		podsToScaleTo := podCount + scalingDirection
-		logging.Logger.Debugf("podsToScaleTo: %d (podCount: %d, scalingDirection: %d)", podsToScaleTo, podCount, scalingDirection)
+		logging.Logger.Debugf("podsToScaleTo: %d (min: %d, max: %d, activeAgentCount: %d, queuedJobCount: %d, podCount: %d, lastPodsToScaleTo: %d, desiredAgentCount: %d, scalingDirection: %d)", podsToScaleTo, min, max, activeAgentCount, queuedJobCount, podCount, lastPodsToScaleTo, desiredAgentCount, scalingDirection)
 		return desiredAgentCount, scalingDirection, podsToScaleTo
 	}
 }
