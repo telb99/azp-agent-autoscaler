@@ -185,7 +185,7 @@ func Autoscale(azdClient azuredevops.ClientAsync, agentPoolID int, k8sClient kub
 					scaleSizeGauge.Set(0)
 					return fmt.Sprintf("Not scaling down yet - agent %s, unable to parse last completed request finish time: %s", affectedAgent.Name, affectedAgent.LastCompletedRequest.FinishTime), nil
 				}
-				minimumJobSettleTime := time.Now().UTC().Add(time.Duration(-30) * time.Second)
+				minimumJobSettleTime := time.Now().UTC().Add(-30 * time.Second)
 				finishTimeCompareMessage := ""
 				if condition := jobFinishTime.Compare(minimumJobSettleTime); condition == 0 {
 					finishTimeCompareMessage = "equal to"
