@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/ogmaresca/azp-agent-autoscaler/pkg/args"
@@ -30,7 +32,9 @@ func main() {
 
 	logging.Logger.SetLevel(args.Logging.Level)
 
-	// Initialize Azure Devops client
+	logging.Logger.Info("Main: starting up")
+
+	// Initialize Azure Devops and Kubernetes clients
 	azdClient := azuredevops.MakeClient(args.AZD.URL, args.AZD.Token)
 	k8sClient, err := kubernetes.MakeClient()
 	if err != nil {
@@ -47,6 +51,8 @@ func main() {
 	go k8sClient.VerifyNoHorizontalPodAutoscalerAsync(verifyHPAChan, args.Kubernetes)
 	// Get all agent pools
 	go azdClient.ListPoolsAsync(agentPoolsChan)
+
+	// Setup the web server to respond to health checks and metrics requests
 	go func() {
 		mux := http.NewServeMux()
 		mux.Handle("/healthz", health.LivenessCheck{})
@@ -76,8 +82,6 @@ func main() {
 	agentPoolName, err := k8sClient.Sync().GetEnvValue(deployment.Resource.PodTemplateSpec.Spec, deployment.Resource.Namespace, poolNameEnvVar)
 	if err != nil {
 		logging.Logger.Panicf("Could not retrieve environment variable %s from %s: %s", poolNameEnvVar, deployment.Resource.FriendlyName, err)
-	} else {
-		logging.Logger.Debugf("Found agent pool %s from %s", agentPoolName, deployment.Resource.FriendlyName)
 	}
 
 	var agentPoolID *int
@@ -89,12 +93,14 @@ func main() {
 	}
 	if agentPoolID == nil {
 		logging.Logger.Panicf("Error - could not find an agent pool with name %s", agentPoolName)
-	} else {
-		logging.Logger.Debugf("Agent pool %s has ID %d", agentPoolName, *agentPoolID)
 	}
 
+	logging.Logger.Infof("Found ADO Agent Pool %s (ID %d) from %s", agentPoolName, *agentPoolID, deployment.Resource.FriendlyName)
+
+	lastAutoscaleMsg := ""
+	lastMessageLogged := time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
 	for {
-		err := scaling.Autoscale(azdClient, *agentPoolID, k8sClient, deployment.Resource, args)
+		msg, err := scaling.Autoscale(azdClient, *agentPoolID, k8sClient, deployment.Resource, args)
 		if err != nil {
 			switch t := err.(type) {
 			case azuredevops.HTTPError:
@@ -104,16 +110,15 @@ func main() {
 					timeToSleep := math.MaxDuration(*httpError.RetryAfter, args.Rate)
 					logging.Logger.Infof("Retrying after %s", timeToSleep.String())
 					time.Sleep(timeToSleep)
+					continue
 				}
-			default:
-				// Do nothing
 			}
-
-			logging.Logger.Panicf("Error autoscaling statefulset/%s: %s", deployment.Resource.Name, err.Error())
-		} else {
+			logging.Logger.Panicf("Error autoscaling statefulset/%s: %s - %s", deployment.Resource.Name, msg, err.Error())
+		} else if msg != lastAutoscaleMsg || time.Now().After(lastMessageLogged.Add(15*time.Minute)) || logging.Logger.IsLevelEnabled(log.DebugLevel) {
+			lastMessageLogged = time.Now()
+			logging.Logger.Info(msg)
+			lastAutoscaleMsg = msg
 			time.Sleep(args.Rate)
 		}
 	}
-
-	logging.Logger.Info("Exiting azp-agent-autoscaler")
 }

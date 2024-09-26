@@ -1,0 +1,1 @@
+go run main.go -action run -log-level debug -rate 20s -scale-up 1m -scale-down 1m -name "azp-agent-sandbox" -namespace "cluster" -token "$Env:NUGET_PERSONAL_ACCESS_TOKEN" -url "https://dev.azure.com/$env:org"

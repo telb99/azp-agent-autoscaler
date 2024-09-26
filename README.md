@@ -1,8 +1,8 @@
 # Azure Pipeline Agent Autoscaler
 
-azp-agent-autoscaler calls Azure Devops to automatically scale a Kubernetes deployment of an Azure Pipelines agent. [A Helm chart for Azure Pipeline agents can be found here](https://github.com/ogmaresca/azp-agent), which also includes this app.
+azp-agent-autoscaler calls Azure Devops to automatically scale a Kubernetes stateful sets deployment of an Azure Pipelines agent. [A Helm chart for Azure Pipeline agents can be found here](https://github.com/ogmaresca/azp-agent), which also includes this app.
 
-azp-agent-autoscaler should (in theory) work in Kubernetes versions that have the `apps/v1` API Versions of StatefulSets (Kubernetes 1.9+). It has been tested in Kubernetes versions 1.13-1.15.
+azp-agent-autoscaler should (in theory) work in Kubernetes versions that have the `apps/v1` API Versions of StatefulSets (Kubernetes 1.9+). It has been tested in Kubernetes versions 1.13-1.29.
 
 ## Installation
 
@@ -23,7 +23,7 @@ You can find the limit on parallel jobs by going to your project settings in Azu
 
 ## Configuration
 
-The values `azp.token` and `azp.url` are required to install the chart. `azp.token` is your Personal Acces token. This token requires Agent Pools (Read) permission. `azp.url` is your Azure Devops URL, usually `https://dev.azure.com/<Your Organization>`.
+The values `azp.token` and `azp.url` are required to install the chart. `azp.token` is the Personal Acces token to be used. This token requires Agent Pools permission (Read and Manage). `azp.url` is your Azure Devops URL, usually `https://dev.azure.com/<Your Organization>`.
 
 `agents.Name` is the name of the resource your agents are deployed in. `agents.Namespace` is the namespace the resource is in, which defaults to the release namespace. `agents.Kind` is the resource kind the agents are deployed in. Only StatefulSet is currently supported, which is the default value.
 
@@ -31,12 +31,12 @@ The values `azp.token` and `azp.url` are required to install the chart. `azp.tok
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `nameOverride`                      | An override value for the name.                                                                          |                                                                   |
 | `fullnameOverride`                  | An override value for the full name.                                                                     |                                                                   |
-| `min`                               | The minimum number of agent pods.                                                                        | 1                                                                 |
+| `min`                               | The minimum number of free agent pods.                                                                   | 1                                                                 |
 | `max`                               | The maximum number of agent pods.                                                                        | 100                                                               |
 | `logLevel`                          | The log level (trace, debug, info, warn, error, fatal, panic)                                            | info                                                              |
-| `rate`                              | The period to poll Azure Devops and the Kubernetes API                                                   | 10s                                                               |
-| `scaleDownMax`                      | The maximum number of pods allowed to scale down at a time                                               | 1                                                                 |
-| `scaleDownDelay`                    | The time to wait before being allowed to scale down again                                                | 10s                                                               |
+| `rate`                              | Time to wait between polling Azure Devops and the Kubernetes API                                         | 20s                                                               |
+| `scaleDownDelay`                    | The time to wait before being allowed to scale down after a scale up                                     | 15m                                                               |
+| `scaleUpDelay`                      | The time to wait before being allowed to scale up after a scale down                                     | 5m                                                                |
 | `agents.Kind`                       | The Kubernetes resource kind of the agents                                                               | StatefulSet                                                       |
 | `agents.Name`                       | The Kubernetes resource name of the agents                                                               | ``                                                                |
 | `agents.Namespace`                  | The Kubernetes resource namespace of the agents                                                          | `.Release.Namespace`                                              |

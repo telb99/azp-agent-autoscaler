@@ -29,18 +29,18 @@ func Agents(num int32, free bool, startPos int32) []azuredevops.AgentDetails {
 			Agent: azuredevops.Agent{
 				Definition: azuredevops.Definition{
 					ID:   int(i),
-					Name: fmt.Sprintf("agent-%d", i),
+					Name: fmt.Sprintf("azp-agent-%d", i),
 				},
 				Status: "online",
 			},
-			SystemCapabilities: map[string]string{
-				"HOSTNAME": fmt.Sprintf("azp-agent-%d", i),
-			},
 		}
+
 		if free {
 			agent.AssignedRequest = nil
+			agent.Enabled = false
 		} else {
 			agent.AssignedRequest = &Jobs(1, false, []azuredevops.AgentDetails{agent}, 0, 0)[0]
+			agent.Enabled = true
 		}
 		agents = append(agents, agent)
 	}
@@ -72,55 +72,57 @@ func Jobs(num int32, queued bool, agents []azuredevops.AgentDetails, startPos in
 
 // mockAZDClient is a mock Azure Devops client
 type mockAZDClient struct {
-	NumPools         int32
-	ErrorListPools   bool
-	NumFreeAgents    int32
-	NumRunningAgents int32
-	ErrorAgents      bool
-	NumQueuedJobs    int32
-	ErrorJobs        bool
-	FreeAgentsFirst  bool
+	NumPools          int32
+	ErrorListPools    bool
+	NumFreeAgents     int32
+	NumRunningAgents  int32
+	ErrorAgents       bool
+	NumQueuedJobs     int32
+	ErrorJobs         bool
+	FreeAgentsFirst   bool
+	ErrorEnableAgent  bool
+	ErrorDisableAgent bool
 }
 
 // ListPoolsAsync retrieves a list of agent pools
 func (c mockAZDClient) ListPoolsAsync(channel chan<- azuredevops.PoolDetailsResponse) {
 	if c.ErrorListPools {
-		channel <- azuredevops.PoolDetailsResponse{[]azuredevops.PoolDetails{}, fmt.Errorf("Mock AZD Client Error")}
+		channel <- azuredevops.PoolDetailsResponse{Pools: []azuredevops.PoolDetails{}, Err: fmt.Errorf("mock AZD Client error")}
 	} else {
-		channel <- azuredevops.PoolDetailsResponse{PoolDetails(c.NumPools, 0), nil}
+		channel <- azuredevops.PoolDetailsResponse{Pools: PoolDetails(c.NumPools, 0), Err: nil}
 	}
 }
 
 // ListPoolsByNameAsync retrieves a list of agent pools with the given name
 func (c mockAZDClient) ListPoolsByNameAsync(channel chan<- azuredevops.PoolDetailsResponse, poolName string) {
 	if c.ErrorListPools {
-		channel <- azuredevops.PoolDetailsResponse{[]azuredevops.PoolDetails{}, fmt.Errorf("Mock AZD Client Error")}
+		channel <- azuredevops.PoolDetailsResponse{Pools: []azuredevops.PoolDetails{}, Err: fmt.Errorf("mock AZD Client error")}
 	} else {
 		pools := PoolDetails(c.NumPools, 0)
 		for _, pool := range pools {
 			if pool.Name == poolName {
-				channel <- azuredevops.PoolDetailsResponse{[]azuredevops.PoolDetails{pool}, nil}
+				channel <- azuredevops.PoolDetailsResponse{Pools: []azuredevops.PoolDetails{pool}, Err: nil}
 				return
 			}
 		}
-		channel <- azuredevops.PoolDetailsResponse{[]azuredevops.PoolDetails{}, nil}
+		channel <- azuredevops.PoolDetailsResponse{Pools: []azuredevops.PoolDetails{}, Err: nil}
 	}
 }
 
 // ListPoolAgentsAsync retrieves all of the agents in a pool
 func (c mockAZDClient) ListPoolAgentsAsync(channel chan<- azuredevops.PoolAgentsResponse, poolID int) {
 	if c.ErrorListPools {
-		channel <- azuredevops.PoolAgentsResponse{[]azuredevops.AgentDetails{}, fmt.Errorf("Mock AZD Client Error")}
+		channel <- azuredevops.PoolAgentsResponse{Agents: []azuredevops.AgentDetails{}, Err: fmt.Errorf("mock AZD Client error")}
 	} else {
 		agents := c.listPoolAgents()
-		channel <- azuredevops.PoolAgentsResponse{agents, nil}
+		channel <- azuredevops.PoolAgentsResponse{Agents: agents, Err: nil}
 	}
 }
 
 // ListJobRequestsAsync retrieves the job requests for a pool
 func (c mockAZDClient) ListJobRequestsAsync(channel chan<- azuredevops.JobRequestsResponse, poolID int) {
 	if c.ErrorListPools {
-		channel <- azuredevops.JobRequestsResponse{[]azuredevops.JobRequest{}, fmt.Errorf("Mock AZD Client Error")}
+		channel <- azuredevops.JobRequestsResponse{Jobs: []azuredevops.JobRequest{}, Err: fmt.Errorf("mock AZD Client error")}
 	} else {
 		agents := c.listPoolAgents()
 		runningAgentPos := int32(0)
@@ -129,7 +131,7 @@ func (c mockAZDClient) ListJobRequestsAsync(channel chan<- azuredevops.JobReques
 		}
 		jobs := Jobs(c.NumRunningAgents, false, agents, 0, runningAgentPos)
 		jobs = append(jobs, Jobs(c.NumQueuedJobs, true, agents, int32(len(agents)), runningAgentPos)...)
-		channel <- azuredevops.JobRequestsResponse{jobs, nil}
+		channel <- azuredevops.JobRequestsResponse{Jobs: jobs, Err: nil}
 	}
 }
 
@@ -144,4 +146,22 @@ func (c mockAZDClient) listPoolAgents() []azuredevops.AgentDetails {
 	}
 
 	return agents
+}
+
+// EnablePoolAgentAsync enables an agent in a pool
+func (c mockAZDClient) EnablePoolAgentAsync(channel chan<- azuredevops.EnableDisablePoolAgentResponse, poolID int, agentID int) {
+	if c.ErrorEnableAgent {
+		channel <- azuredevops.EnableDisablePoolAgentResponse{Result: "fail", Err: fmt.Errorf("mock AZD Client error")}
+	} else {
+		channel <- azuredevops.EnableDisablePoolAgentResponse{Result: "success", Err: nil}
+	}
+}
+
+// DisablePoolAgentAsync disables an agent in a pool
+func (c mockAZDClient) DisablePoolAgentAsync(channel chan<- azuredevops.EnableDisablePoolAgentResponse, poolID int, agentID int) {
+	if c.ErrorDisableAgent {
+		channel <- azuredevops.EnableDisablePoolAgentResponse{Result: "fail", Err: fmt.Errorf("mock AZD Client error")}
+	} else {
+		channel <- azuredevops.EnableDisablePoolAgentResponse{Result: "success", Err: nil}
+	}
 }

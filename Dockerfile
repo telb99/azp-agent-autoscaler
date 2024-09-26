@@ -9,10 +9,10 @@ FROM golang:1.17-alpine3.15 AS base
 
 WORKDIR /go/src
 
-ENV GO111MODULE on
-ENV CGO_ENABLED 0
-ENV GOOS linux
-ENV GOARCH amd64
+ENV GO111MODULE=on
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
 
 COPY go.mod /go/src/go.mod
 
@@ -37,7 +37,7 @@ USER 1000
 
 WORKDIR /home/azp-agent-autoscaler
 
-ENV HOME /home/azp-agent-autoscaler
+ENV HOME=/home/azp-agent-autoscaler
 
 COPY --from=build --chown=1000 /go/bin/azp-agent-autoscaler /bin/azp-agent-autoscaler
 

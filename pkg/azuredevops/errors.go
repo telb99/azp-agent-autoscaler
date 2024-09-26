@@ -30,7 +30,7 @@ func NewHTTPError(response *http.Response) *HTTPError {
 
 	return &HTTPError{
 		StatusCode: response.StatusCode,
-		Endpoint:   response.Request.URL.Path,
+		Endpoint:   response.Request.URL.String(),
 		RetryAfter: retryAfter,
 	}
 }

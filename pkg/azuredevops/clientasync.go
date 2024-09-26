@@ -10,6 +10,8 @@ type ClientAsync interface {
 	ListPoolsByNameAsync(channel chan<- PoolDetailsResponse, poolName string)
 	ListPoolAgentsAsync(channel chan<- PoolAgentsResponse, poolID int)
 	ListJobRequestsAsync(channel chan<- JobRequestsResponse, poolID int)
+	EnablePoolAgentAsync(channel chan<- EnableDisablePoolAgentResponse, poolID int, agentID int)
+	DisablePoolAgentAsync(channel chan<- EnableDisablePoolAgentResponse, poolID int, agentID int)
 }
 
 // ClientAsyncImpl is the async interface implementation that calls Azure Devops
@@ -70,4 +72,22 @@ type JobRequestsResponse struct {
 func (c ClientAsyncImpl) ListJobRequestsAsync(channel chan<- JobRequestsResponse, poolID int) {
 	response, err := c.client.ListJobRequests(poolID)
 	channel <- JobRequestsResponse{response, err}
+}
+
+// EnableDisablePoolAgentResponse is a wrapper for EnableDisablePoolAgentResult to allow also returning an error in channels
+type EnableDisablePoolAgentResponse struct {
+	Result string
+	Err    error
+}
+
+// EnablePoolAgentAsync enables an agent in a pool
+func (c ClientAsyncImpl) EnablePoolAgentAsync(channel chan<- EnableDisablePoolAgentResponse, poolID int, agentID int) {
+	result, err := c.client.EnablePoolAgent(poolID, agentID)
+	channel <- EnableDisablePoolAgentResponse{result, err}
+}
+
+// DisablePoolAgentAsync disables an agent in a pool
+func (c ClientAsyncImpl) DisablePoolAgentAsync(channel chan<- EnableDisablePoolAgentResponse, poolID int, agentID int) {
+	result, err := c.client.DisablePoolAgent(poolID, agentID)
+	channel <- EnableDisablePoolAgentResponse{result, err}
 }

@@ -10,12 +10,13 @@ import (
 )
 
 var (
+	action            = flag.String("action", "run", "Action to take. Options: run, dry-run.")
 	logLevel          = flag.String("log-level", "info", "Log level (trace, debug, info, warn, error, fatal, panic).")
 	min               = flag.Int("min", 1, "Minimum number of free agents to keep alive. Minimum of 1.")
 	max               = flag.Int("max", 100, "Maximum number of agents allowed.")
-	rate              = flag.Duration("rate", 10*time.Second, "Duration to check the number of agents.")
-	scaleDownDelay    = flag.Duration("scale-down", 30*time.Second, "Wait time after scaling down to scale down again.")
-	scaleDownMax      = flag.Int("scale-down-max", 1, "Maximum allowed number of pods to scale down.")
+	rate              = flag.Duration("rate", 20*time.Second, "Wait time between polling Azure Devops and the Kubernetes API.")
+	scaleDownDelay    = flag.Duration("scale-down", 15*time.Minute, "Wait time after scaling up before scaling down.")
+	scaleUpDelay      = flag.Duration("scale-up", 5*time.Minute, "Wait time after scaling down before scaling up.")
 	resourceType      = flag.String("type", "StatefulSet", "Resource type of the agent. Only StatefulSet is supported.")
 	resourceName      = flag.String("name", "", "The name of the StatefulSet.")
 	resourceNamespace = flag.String("namespace", "", "The namespace of the StatefulSet.")
@@ -26,11 +27,14 @@ var (
 
 // Args holds all of the program arguments
 type Args struct {
+	Action string
+
 	Min  int32
 	Max  int32
 	Rate time.Duration
 
 	ScaleDown  ScaleDownArgs
+	ScaleUp    ScaleUpArgs
 	Logging    LoggingArgs
 	Kubernetes KubernetesArgs
 	AZD        AzureDevopsArgs
@@ -40,7 +44,11 @@ type Args struct {
 // ScaleDownArgs holds all of the scale-down related args
 type ScaleDownArgs struct {
 	Delay time.Duration
-	Max   int32
+}
+
+// ScaleUpArgs holds all of the scale-up related args
+type ScaleUpArgs struct {
+	Delay time.Duration
 }
 
 // LoggingArgs holds all of the logging related args
@@ -76,12 +84,15 @@ func ArgsFromFlags() Args {
 	// error should be validated in ValidateArgs()
 	logrusLevel, _ := log.ParseLevel(*logLevel)
 	return Args{
-		Min:  int32(*min),
-		Max:  int32(*max),
-		Rate: *rate,
+		Action: *action,
+		Min:    int32(*min),
+		Max:    int32(*max),
+		Rate:   *rate,
 		ScaleDown: ScaleDownArgs{
 			Delay: *scaleDownDelay,
-			Max:   int32(*scaleDownMax),
+		},
+		ScaleUp: ScaleUpArgs{
+			Delay: *scaleUpDelay,
 		},
 		Logging: LoggingArgs{
 			Level: logrusLevel,
@@ -109,6 +120,9 @@ func ValidateArgs() error {
 	if err != nil {
 		validationErrors = append(validationErrors, err.Error())
 	}
+	if *action != "run" && *action != "dry-run" {
+		validationErrors = append(validationErrors, "Action must be \"run\" or \"dry-run\".")
+	}
 	if *min < 1 {
 		validationErrors = append(validationErrors, "Min argument cannot be less than 1.")
 	}
@@ -119,9 +133,6 @@ func ValidateArgs() error {
 		validationErrors = append(validationErrors, "Rate is required.")
 	} else if rate.Seconds() <= 1 {
 		validationErrors = append(validationErrors, fmt.Sprintf("Rate '%s' is too low.", rate.String()))
-	}
-	if *scaleDownMax < 1 {
-		validationErrors = append(validationErrors, fmt.Sprintf("Scale-down-max argument cannot be less than 1."))
 	}
 	if *resourceType != "StatefulSet" {
 		validationErrors = append(validationErrors, fmt.Sprintf("Unknown resource type %s.", *resourceType))
