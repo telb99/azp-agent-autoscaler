@@ -2,7 +2,7 @@
 
 azp-agent-autoscaler calls Azure Devops to automatically scale a Kubernetes stateful sets deployment of an Azure Pipelines agent. [A Helm chart for Azure Pipeline agents can be found here](https://github.com/ogmaresca/azp-agent), which also includes this app.
 
-azp-agent-autoscaler should (in theory) work in Kubernetes versions that have the `apps/v1` API Versions of StatefulSets (Kubernetes 1.9+). It has been tested in Kubernetes versions 1.13-1.26.
+azp-agent-autoscaler should (in theory) work in Kubernetes versions that have the `apps/v1` API Versions of StatefulSets (Kubernetes 1.9+). It has been tested in Kubernetes versions 1.13-1.29.
 
 ## Installation
 
